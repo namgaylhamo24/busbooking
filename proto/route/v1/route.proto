@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package route.v1;
+
+option go_package = "busbooking/gen/routepb";
+
+// A bus route owned by route-service.
+message Route {
+  string id = 1;
+  string origin = 2;
+  string destination = 3;
+  string departure_time = 4;  // "HH:MM", 24-hour
+  double price = 5;           // price per seat
+  int32 total_seats = 6;
+}
+
+message CreateRouteRequest { Route route = 1; }
+message GetRouteRequest    { string id = 1; }
+message UpdateRouteRequest { Route route = 1; }  // route.id selects the record
+message DeleteRouteRequest { string id = 1; }
+message DeleteRouteResponse {}
+message ListRoutesRequest  {}
+message ListRoutesResponse { repeated Route routes = 1; }
+
+service RouteService {
+  rpc CreateRoute(CreateRouteRequest) returns (Route);
+  rpc GetRoute(GetRouteRequest) returns (Route);
+  rpc UpdateRoute(UpdateRouteRequest) returns (Route);
+  rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse);
+  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
+}

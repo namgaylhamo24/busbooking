@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package ticket.v1;
+
+option go_package = "busbooking/gen/ticketpb";
+
+// A ticket owned by ticket-service. It references a route only by ID.
+message Ticket {
+  string id = 1;
+  string route_id = 2;
+  string passenger_name = 3;
+  string travel_date = 4;     // "YYYY-MM-DD"
+  int32 seats = 5;
+  double total_price = 6;     // computed: seats * route price
+
+  // Enriched from route-service at read time; not stored in the ticket DB.
+  string route_summary = 7;   // e.g. "Thimphu -> Phuntsholing 08:30"
+  bool degraded = 8;          // true if route-service was unreachable
+}
+
+message CreateTicketRequest { Ticket ticket = 1; }
+message GetTicketRequest    { string id = 1; }
+message UpdateTicketRequest { Ticket ticket = 1; }
+message DeleteTicketRequest { string id = 1; }
+message DeleteTicketResponse {}
+message ListTicketsRequest  {}
+message ListTicketsResponse { repeated Ticket tickets = 1; }
+
+service TicketService {
+  rpc CreateTicket(CreateTicketRequest) returns (Ticket);
+  rpc GetTicket(GetTicketRequest) returns (Ticket);
+  rpc UpdateTicket(UpdateTicketRequest) returns (Ticket);
+  rpc DeleteTicket(DeleteTicketRequest) returns (DeleteTicketResponse);
+  rpc ListTickets(ListTicketsRequest) returns (ListTicketsResponse);
+}
