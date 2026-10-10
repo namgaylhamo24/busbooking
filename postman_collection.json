@@ -1,0 +1,1127 @@
+{
+  "info": {
+    "name": "Bus Booking API (WEB303)",
+    "description": "REST API gateway for two gRPC microservices: route-service (Service B) and ticket-service (Service A).\n\nSetup: docker compose up --build, then run this collection. Folders 0-4 can be run with the Collection Runner in order; folder 5 (resilience) is manual.\n\nThe initial value of baseUrl is http://localhost:8080. If you published the gateway on another host port (GATEWAY_PORT in .env), change the variable's CURRENT value.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// travelDate = 7 days from now, so create-ticket requests never use a past date",
+          "var d = new Date(); d.setDate(d.getDate() + 7);",
+          "pm.collectionVariables.set('travelDate', d.toISOString().slice(0, 10));"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "routeId",
+      "value": ""
+    },
+    {
+      "key": "ticketId",
+      "value": ""
+    },
+    {
+      "key": "fallbackTicketId",
+      "value": ""
+    },
+    {
+      "key": "travelDate",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0 Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Gateway liveness. No backend is called."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Body says ok\", function () { pm.expect(pm.response.json().status).to.eql(\"ok\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1 Routes (Service B)",
+      "item": [
+        {
+          "name": "Create route",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/routes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"origin\": \"Thimphu\",\n  \"destination\": \"Phuntsholing\",\n  \"departure_time\": \"08:30\",\n  \"price\": 350,\n  \"total_seats\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Gateway -> RouteService.CreateRoute. Expect 201 Created. Saves the new id in {{routeId}}."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () { pm.response.to.have.status(201); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"Route has a generated id\", function () { pm.expect(j.id).to.be.a(\"string\").and.not.empty; });",
+                  "pm.test(\"Location header points at the new route\", function () { pm.expect(pm.response.headers.get(\"Location\")).to.eql(\"/routes/\" + j.id); });",
+                  "pm.collectionVariables.set(\"routeId\", j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List routes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/routes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes"
+              ]
+            },
+            "description": "Gateway -> RouteService.ListRoutes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Response contains a routes array\", function () { pm.expect(pm.response.json().routes).to.be.an(\"array\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get route",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/routes/{{routeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes",
+                "{{routeId}}"
+              ]
+            },
+            "description": "Gateway -> RouteService.GetRoute."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Returns the requested route\", function () { pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get(\"routeId\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update route",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/routes/{{routeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes",
+                "{{routeId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"origin\": \"Thimphu\",\n  \"destination\": \"Phuntsholing\",\n  \"departure_time\": \"09:00\",\n  \"price\": 350,\n  \"total_seats\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Gateway -> RouteService.UpdateRoute. Changes the departure time only (price stays 350 so ticket totals remain predictable)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"departure_time was updated\", function () { pm.expect(pm.response.json().departure_time).to.eql(\"09:00\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2 Tickets (Service A)",
+      "item": [
+        {
+          "name": "Create ticket",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"route_id\": \"{{routeId}}\",\n  \"passenger_name\": \"Dechen Pelden\",\n  \"travel_date\": \"{{travelDate}}\",\n  \"seats\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Gateway -> TicketService.CreateTicket. Ticket-service calls RouteService.GetRoute (timeout, retry, circuit breaker) to confirm the route and price. Saves the id in {{ticketId}}."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () { pm.response.to.have.status(201); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"total_price = seats x route price (2 x 350)\", function () { pm.expect(j.total_price).to.eql(700); });",
+                  "pm.test(\"route_summary comes from route-service\", function () { pm.expect(j.route_summary).to.include(\"Thimphu\"); });",
+                  "pm.test(\"Not degraded\", function () { pm.expect(j.degraded).to.eql(false); });",
+                  "pm.collectionVariables.set(\"ticketId\", j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List tickets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Response contains a tickets array\", function () { pm.expect(pm.response.json().tickets).to.be.an(\"array\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get ticket",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tickets/{{ticketId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets",
+                "{{ticketId}}"
+              ]
+            },
+            "description": "Ticket data from ticket-db plus route details fetched from route-service."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Ticket is enriched with route data\", function () { pm.expect(pm.response.json().route_summary).to.not.be.empty; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update ticket (seats 2 -> 5)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tickets/{{ticketId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets",
+                "{{ticketId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"route_id\": \"{{routeId}}\",\n  \"passenger_name\": \"Dechen Pelden\",\n  \"travel_date\": \"{{travelDate}}\",\n  \"seats\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"total_price recalculated (5 x 350)\", function () { pm.expect(pm.response.json().total_price).to.eql(1750); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete ticket",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tickets/{{ticketId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets",
+                "{{ticketId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 204\", function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get deleted ticket",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tickets/{{ticketId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets",
+                "{{ticketId}}"
+              ]
+            },
+            "description": "Expect 404 Not Found: the ticket was deleted in the previous step."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 404\", function () { pm.response.to.have.status(404); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });",
+                  "pm.test(\"gRPC code is NotFound\", function () { pm.expect(pm.response.json().grpc_code).to.eql(\"NotFound\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3 Error cases",
+      "item": [
+        {
+          "name": "400 malformed JSON",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/routes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{bad json",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Rejected by the gateway before any gRPC call."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "400 empty body",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/routes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "400 unknown field",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/routes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"origen\": \"Paro\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Misspelled field names are rejected instead of silently ignored."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "400 route validation failure",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/routes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"origin\": \"Paro\",\n  \"destination\": \"Paro\",\n  \"departure_time\": \"7:45\",\n  \"price\": -1,\n  \"total_seats\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Validated by route-service (InvalidArgument -> 400). Nothing is stored."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });",
+                  "pm.test(\"gRPC code is InvalidArgument\", function () { pm.expect(pm.response.json().grpc_code).to.eql(\"InvalidArgument\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "400 id is not a UUID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/routes/abc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes",
+                "abc"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });",
+                  "pm.test(\"gRPC code is InvalidArgument\", function () { pm.expect(pm.response.json().grpc_code).to.eql(\"InvalidArgument\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "404 route not found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/routes/00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 404\", function () { pm.response.to.have.status(404); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });",
+                  "pm.test(\"gRPC code is NotFound\", function () { pm.expect(pm.response.json().grpc_code).to.eql(\"NotFound\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "404 ticket for non-existent route",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"route_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"passenger_name\": \"Test User\",\n  \"travel_date\": \"{{travelDate}}\",\n  \"seats\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Cross-service check: ticket-service asks route-service, which answers NotFound."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 404\", function () { pm.response.to.have.status(404); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });",
+                  "pm.test(\"gRPC code is NotFound\", function () { pm.expect(pm.response.json().grpc_code).to.eql(\"NotFound\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "400 seats exceed route capacity",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"route_id\": \"{{routeId}}\",\n  \"passenger_name\": \"Test User\",\n  \"travel_date\": \"{{travelDate}}\",\n  \"seats\": 31\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Route capacity is 30, so 31 seats is rejected using data from route-service."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });",
+                  "pm.test(\"gRPC code is InvalidArgument\", function () { pm.expect(pm.response.json().grpc_code).to.eql(\"InvalidArgument\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "400 travel date in the past",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"route_id\": \"{{routeId}}\",\n  \"passenger_name\": \"Test User\",\n  \"travel_date\": \"2020-01-01\",\n  \"seats\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });",
+                  "pm.test(\"gRPC code is InvalidArgument\", function () { pm.expect(pm.response.json().grpc_code).to.eql(\"InvalidArgument\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "400 bad date format",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"route_id\": \"{{routeId}}\",\n  \"passenger_name\": \"Test User\",\n  \"travel_date\": \"12-10-2026\",\n  \"seats\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });",
+                  "pm.test(\"gRPC code is InvalidArgument\", function () { pm.expect(pm.response.json().grpc_code).to.eql(\"InvalidArgument\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "400 empty passenger name",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"route_id\": \"{{routeId}}\",\n  \"passenger_name\": \"\",\n  \"travel_date\": \"{{travelDate}}\",\n  \"seats\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });",
+                  "pm.test(\"gRPC code is InvalidArgument\", function () { pm.expect(pm.response.json().grpc_code).to.eql(\"InvalidArgument\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "404 unknown endpoint",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/buses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "buses"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 404\", function () { pm.response.to.have.status(404); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Each request is expected to FAIL with the status shown in its name; the tests pass when it does."
+    },
+    {
+      "name": "4 Cleanup",
+      "item": [
+        {
+          "name": "Delete route",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/routes/{{routeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes",
+                "{{routeId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 204\", function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get deleted route",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/routes/{{routeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "routes",
+                "{{routeId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 404\", function () { pm.response.to.have.status(404); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });",
+                  "pm.test(\"gRPC code is NotFound\", function () { pm.expect(pm.response.json().grpc_code).to.eql(\"NotFound\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5 Resilience (manual)",
+      "item": [
+        {
+          "name": "Create ticket while route-service is down",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"route_id\": \"{{routeId}}\",\n  \"passenger_name\": \"Test User\",\n  \"travel_date\": \"{{travelDate}}\",\n  \"seats\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Expect 503. First three calls show retries; once the breaker opens the message becomes 'circuit breaker open'."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 503\", function () { pm.response.to.have.status(503); });",
+                  "pm.test(\"Response has a JSON error message\", function () { pm.expect(pm.response.json()).to.have.property(\"error\"); });",
+                  "pm.test(\"gRPC code is Unavailable\", function () { pm.expect(pm.response.json().grpc_code).to.eql(\"Unavailable\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get ticket (fallback while route-service is down)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tickets/{{fallbackTicketId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets",
+                "{{fallbackTicketId}}"
+              ]
+            },
+            "description": "Set the collection variable fallbackTicketId to any existing ticket id first (copy one from 'List tickets')."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Fallback response is degraded\", function () { pm.expect(pm.response.json().degraded).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create ticket after recovery",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tickets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tickets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"route_id\": \"{{routeId}}\",\n  \"passenger_name\": \"Recovered User\",\n  \"travel_date\": \"{{travelDate}}\",\n  \"seats\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Run about 12 seconds after docker compose start route-service."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.test(\"Not degraded again\", function () { pm.expect(pm.response.json().degraded).to.eql(false); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "MANUAL: run these one by one, not with the Runner.\n\n1. Run folder 1 (Create route) so {{routeId}} is set.\n2. In a terminal: docker compose stop route-service\n3. Send 'Create ticket while route-service is down' three times: 503 'unreachable after 3 attempts'.\n4. Send it again straight away: 503 'circuit breaker open', returned instantly.\n5. Send 'Get ticket (fallback)': 200 with degraded=true.\n6. docker compose start route-service, wait ~12 seconds, send 'Create ticket after recovery': 201.\nWatch the retry, backoff and breaker lines with: docker compose logs -f ticket-service"
+    }
+  ]
+}
