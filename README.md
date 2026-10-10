@@ -169,6 +169,21 @@ Set inside the containers by `docker-compose.yml`: `GRPC_PORT`, `HTTP_PORT`, `DB
 
 ## Project structure
 
+```
+busbooking/
+  proto/
+    route/v1/route.proto        RouteService (CRUD)
+    ticket/v1/ticket.proto      TicketService (CRUD)
+  gen/                          generated Go code (committed so Docker builds work)
+  route-service/                Service B: main.go, server.go, store.go, validate.go, Dockerfile
+  ticket-service/               Service A: main.go, server.go, store.go, validate.go, routeclient.go, Dockerfile
+  gateway/                      REST to gRPC: main.go, handlers.go, respond.go, middleware.go, Dockerfile
+  scripts/                      smoke-test.sh, resilience-demo.sh
+  docker-compose.yml
+  .env.example
+  postman_collection.json
+  README.md
+```
 
 Each service folder has a multi-stage `Dockerfile`: a Go build stage, then a minimal Alpine runtime image running as a non-root user.
 
