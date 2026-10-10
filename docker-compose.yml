@@ -1,0 +1,106 @@
+# Bus booking system: gateway -> ticket-service -> route-service,
+# each service with its own PostgreSQL database (Database per Service).
+# Every setting comes from environment variables. Defaults after ":-" let
+# the stack start even without a .env file; copy .env.example to .env to
+# override them.
+name: busbooking
+
+services:
+  # ---------------------------------------------------------- databases
+  route-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${ROUTE_DB_USER:-route_user}
+      POSTGRES_PASSWORD: ${ROUTE_DB_PASSWORD:-route_pass}
+      POSTGRES_DB: ${ROUTE_DB_NAME:-route_db}
+    volumes:
+      - route_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ticket-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${TICKET_DB_USER:-ticket_user}
+      POSTGRES_PASSWORD: ${TICKET_DB_PASSWORD:-ticket_pass}
+      POSTGRES_DB: ${TICKET_DB_NAME:-ticket_db}
+    volumes:
+      - ticket_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ----------------------------------------------------------- services
+  # Service B: owns routes, talks only to route-db.
+  route-service:
+    build:
+      context: .
+      dockerfile: route-service/Dockerfile
+    environment:
+      GRPC_PORT: "50051"
+      DB_HOST: route-db
+      DB_PORT: "5432"
+      DB_USER: ${ROUTE_DB_USER:-route_user}
+      DB_PASSWORD: ${ROUTE_DB_PASSWORD:-route_pass}
+      DB_NAME: ${ROUTE_DB_NAME:-route_db}
+    depends_on:
+      route-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Service A: owns tickets, talks to ticket-db and (over gRPC) route-service.
+  ticket-service:
+    build:
+      context: .
+      dockerfile: ticket-service/Dockerfile
+    environment:
+      GRPC_PORT: "50052"
+      DB_HOST: ticket-db
+      DB_PORT: "5432"
+      DB_USER: ${TICKET_DB_USER:-ticket_user}
+      DB_PASSWORD: ${TICKET_DB_PASSWORD:-ticket_pass}
+      DB_NAME: ${TICKET_DB_NAME:-ticket_db}
+      ROUTE_SERVICE_ADDR: route-service:50051
+      # Resilience settings for the ticket-service -> route-service call
+      ROUTE_TIMEOUT_MS: ${ROUTE_TIMEOUT_MS:-2000}
+      ROUTE_MAX_ATTEMPTS: ${ROUTE_MAX_ATTEMPTS:-3}
+      ROUTE_BACKOFF_MS: ${ROUTE_BACKOFF_MS:-200}
+      CB_FAILURE_THRESHOLD: ${CB_FAILURE_THRESHOLD:-3}
+      CB_OPEN_SECONDS: ${CB_OPEN_SECONDS:-10}
+    depends_on:
+      ticket-db:
+        condition: service_healthy
+      route-service:
+        condition: service_started
+    restart: unless-stopped
+
+  # REST entry point: the ONLY container that publishes a port to the host.
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    environment:
+      HTTP_PORT: "8080"
+      ROUTE_SERVICE_ADDR: route-service:50051
+      TICKET_SERVICE_ADDR: ticket-service:50052
+      GATEWAY_TIMEOUT_MS: ${GATEWAY_TIMEOUT_MS:-10000}
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      - route-service
+      - ticket-service
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  route_data:
+  ticket_data:

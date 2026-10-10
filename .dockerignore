@@ -1,0 +1,8 @@
+.git
+.env
+.vscode
+.idea
+scripts
+README.md
+postman_collection.json
+screenshots
